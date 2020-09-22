@@ -23,16 +23,16 @@
 Provides the overal functionality
 """
 
-import ConfigParser
+import configparser
 import time
 import os
 import logging
 import logging.handlers
 from datetime import datetime,timedelta
 
-from zfs import ZFS
-from clean import Cleaner
-from helper import Helper
+from . import zfs
+from . import cleaner
+from . import helper
 
 
 BUFFER_SIZE = '512M' # Default -m value to pass to mbuffer
@@ -59,8 +59,8 @@ class Manager(object):
         Manager.logger = logging.getLogger('logger')
         Manager.logger.setLevel(logging.INFO)
         Manager.logger.addHandler(handler)
-        Cleaner.logger = Manager.logger  # Pass logger along
-        ZFS.logger = Manager.logger  # Pass logger along
+        cleaner.logger = Manager.logger  # Pass logger along
+        zfs.logger = Manager.logger  # Pass logger along
 
     @staticmethod
     def run(settings):
@@ -73,8 +73,8 @@ class Manager(object):
         today = '{0:04d}{1:02d}{2:02d}'.format(now.year, now.month, now.day)
         yesterday = '{0:04d}{1:02d}{2:02d}'.format(yda.year, yda.month, yda.day)
 
-        snapshots = ZFS.get_snapshots()
-        datasets = ZFS.get_datasets()
+        snapshots = zfs.get_snapshots()
+        datasets = zfs.get_datasets()
         for dataset in datasets:
             if dataset in settings:
                 try:
@@ -105,12 +105,12 @@ class Manager(object):
                     if execute is True:
                         # Pre exectution command
                         if dataset_settings['preexec'] is not None:
-                            Helper.run_command(dataset_settings['preexec'], '/')
+                            helper.run_command(dataset_settings['preexec'], '/')
 
                         if take_snapshot is True:
                             # Take today's snapshotzfs
                             Manager.logger.info('Taking snapshot {0}@{1}'.format(dataset, today))
-                            ZFS.snapshot(dataset, today, dataset_settings['recursive'])
+                            zfs.snapshot(dataset, today, dataset_settings['recursive'])
                             local_snapshots.append(today)
                             Manager.logger.info('Taking snapshot {0}@{1} complete'.format(dataset, today))
 
@@ -120,7 +120,7 @@ class Manager(object):
                             replicate_settings = dataset_settings['replicate']
                             push = replicate_settings['target'] is not None
                             remote_dataset = replicate_settings['target'] if push else replicate_settings['source']
-                            remote_snapshots = ZFS.get_snapshots(remote_dataset, replicate_settings['endpoint'])
+                            remote_snapshots = zfs.get_snapshots(remote_dataset, replicate_settings['endpoint'])
                             last_common_snapshot = None
                             if remote_dataset in remote_snapshots:
                                 if push is True:  # If pushing, we search for the last local snapshot that is remotely available
@@ -140,13 +140,13 @@ class Manager(object):
                                             continue
                                         if previous_snapshot is not None:
                                             # There is a snapshot on this host that is not yet on the other side.
-                                            size = ZFS.get_size(dataset, previous_snapshot, snapshot)
+                                            size = zfs.get_size(dataset, previous_snapshot, snapshot)
                                             Manager.logger.info('  {0}@{1} > {0}@{2} ({3})'.format(dataset, previous_snapshot, snapshot, size))
-                                            ZFS.replicate(dataset, previous_snapshot, snapshot, remote_dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='push', compression=replicate_settings['compression'])
-                                            ZFS.hold(dataset, snapshot)
-                                            ZFS.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
-                                            ZFS.release(dataset, previous_snapshot)
-                                            ZFS.release(remote_dataset, previous_snapshot, replicate_settings['endpoint'])
+                                            zfs.replicate(dataset, previous_snapshot, snapshot, remote_dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='push', compression=replicate_settings['compression'])
+                                            zfs.hold(dataset, snapshot)
+                                            zfs.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
+                                            zfs.release(dataset, previous_snapshot)
+                                            zfs.release(remote_dataset, previous_snapshot, replicate_settings['endpoint'])
                                             previous_snapshot = snapshot
                                 else:
                                     for snapshot in remote_snapshots[remote_dataset]:
@@ -155,43 +155,43 @@ class Manager(object):
                                             continue
                                         if previous_snapshot is not None:
                                             # There is a remote snapshot that is not yet on the local host.
-                                            size = ZFS.get_size(remote_dataset, previous_snapshot, snapshot, replicate_settings['endpoint'])
+                                            size = zfs.get_size(remote_dataset, previous_snapshot, snapshot, replicate_settings['endpoint'])
                                             Manager.logger.info('  {0}@{1} > {0}@{2} ({3})'.format(remote_dataset, previous_snapshot, snapshot, size))
-                                            ZFS.replicate(remote_dataset, previous_snapshot, snapshot, dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='pull', compression=replicate_settings['compression'])
-                                            ZFS.hold(dataset, snapshot)
-                                            ZFS.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
-                                            ZFS.release(dataset, previous_snapshot)
-                                            ZFS.release(remote_dataset, previous_snapshot, replicate_settings['endpoint'])
+                                            zfs.replicate(remote_dataset, previous_snapshot, snapshot, dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='pull', compression=replicate_settings['compression'])
+                                            zfs.hold(dataset, snapshot)
+                                            zfs.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
+                                            zfs.release(dataset, previous_snapshot)
+                                            zfs.release(remote_dataset, previous_snapshot, replicate_settings['endpoint'])
                                             previous_snapshot = snapshot
                             elif push is True and len(local_snapshots) > 0:
                                 # No common snapshot
                                 if remote_dataset not in remote_snapshots:
                                     # No remote snapshot, full replication
                                     snapshot = local_snapshots[-1]
-                                    size = ZFS.get_size(dataset, None, snapshot)
+                                    size = zfs.get_size(dataset, None, snapshot)
                                     Manager.logger.info('  {0}@         > {0}@{1} ({2})'.format(dataset, snapshot, size))
-                                    ZFS.replicate(dataset, None, snapshot, remote_dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='push', compression=replicate_settings['compression'])
-                                    ZFS.hold(dataset, snapshot)
-                                    ZFS.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
+                                    zfs.replicate(dataset, None, snapshot, remote_dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='push', compression=replicate_settings['compression'])
+                                    zfs.hold(dataset, snapshot)
+                                    zfs.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
                             elif push is False and remote_dataset in remote_snapshots and len(remote_snapshots[remote_dataset]) > 0:
                                 # No common snapshot
                                 if len(local_snapshots) == 0:
                                     # No local snapshot, full replication
                                     snapshot = remote_snapshots[remote_dataset][-1]
-                                    size = ZFS.get_size(remote_dataset, None, snapshot, replicate_settings['endpoint'])
+                                    size = zfs.get_size(remote_dataset, None, snapshot, replicate_settings['endpoint'])
                                     Manager.logger.info('  {0}@         > {0}@{1} ({2})'.format(remote_dataset, snapshot, size))
-                                    ZFS.replicate(remote_dataset, None, snapshot, dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='pull', compression=replicate_settings['compression'])
-                                    ZFS.hold(dataset, snapshot)
-                                    ZFS.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
+                                    zfs.replicate(remote_dataset, None, snapshot, dataset, replicate_settings.get('buffer_size', BUFFER_SIZE), replicate_settings['endpoint'], direction='pull', compression=replicate_settings['compression'])
+                                    zfs.hold(dataset, snapshot)
+                                    zfs.hold(remote_dataset, snapshot, replicate_settings['endpoint'])
                             Manager.logger.info('Replicating {0} complete'.format(dataset))
 
                         # Post execution command
                         if dataset_settings['postexec'] is not None:
-                            Helper.run_command(dataset_settings['postexec'], '/')
+                            helper.run_command(dataset_settings['postexec'], '/')
 
                     # Cleaning the snapshots (cleaning is mandatory)
                     if today in local_snapshots or yesterday in local_snapshots:
-                        Cleaner.clean(dataset, local_snapshots, dataset_settings['schema'])
+                        cleaner.clean(dataset, local_snapshots, dataset_settings['schema'])
 
                 except Exception as ex:
                     Manager.logger.error('Exception: {0}'.format(str(ex)))
@@ -207,7 +207,7 @@ class Manager(object):
 
         settings = {}
         try:
-            config = ConfigParser.RawConfigParser()
+            config = configparser.RawConfigParser()
             config.read('/etc/zfssnapmanager.cfg')
             for dataset in config.sections():
                 settings[dataset] = {'mountpoint': config.get(dataset, 'mountpoint') if config.has_option(dataset, 'mountpoint') else None,

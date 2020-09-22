@@ -1,4 +1,2 @@
-.idea/*
-pkg/*
-src/*
-packages/*
+scripts/__pycache__
+.idea
